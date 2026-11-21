@@ -21,8 +21,10 @@ class Store:
         self._seed()
 
     def _seed(self) -> None:
+        # 必须深拷贝：质检批次等记录含嵌套的成员/证据列表，浅拷贝会让
+        # reset() 后的示例数据仍共享同一份引用，测试之间互相污染。
         self._tables: dict[str, list[dict[str, Any]]] = {
-            name: [dict(row) for row in rows] for name, rows in SEED_ROWS.items()
+            name: copy.deepcopy(rows) for name, rows in SEED_ROWS.items()
         }
         self._change_log: list[dict[str, Any]] = []
         self._snapshots: dict[str, list[dict[str, Any]]] = {}

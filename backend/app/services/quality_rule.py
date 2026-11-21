@@ -42,12 +42,13 @@ class QualityRuleService(BaseModuleService):
         store.rows(self.MODULE).append(rule)
         return rule
 
-    def execute_check(self, rule_id: int, current_value: float) -> dict[str, Any]:
-        """执行质量检查，如果触发阈值则自动生成治理问题（Pipeline 3 核心方法）。"""
-        rule = self.get_entry(rule_id)
-        if not rule:
-            return {"ok": False, "error": "规则不存在"}
+    @staticmethod
+    def evaluate_value(rule: dict[str, Any], current_value: float) -> dict[str, Any]:
+        """按规则自身的阈值判定一个测点，纯函数、不写库。
 
+        多资产质检批次直接复用它：每条台账必须带上该资产自己的规则阈值，
+        不允许把邻表的阈值或测点套到当前资产上。
+        """
         try:
             low = float(rule.get("阈值下限", 0))
             high = float(rule.get("阈值上限", 100))
@@ -70,6 +71,29 @@ class QualityRuleService(BaseModuleService):
         else:
             breached = current_value < low or current_value > high
             breach_detail = f"当前值{current_value}不在[{low}, {high}]范围内"
+
+        return {
+            "ok": True,
+            "current_value": current_value,
+            "threshold_low": low,
+            "threshold_high": high,
+            "breached": breached,
+            "breach_detail": breach_detail,
+        }
+
+    def execute_check(self, rule_id: int, current_value: float) -> dict[str, Any]:
+        """执行质量检查，如果触发阈值则自动生成治理问题（Pipeline 3 核心方法）。"""
+        rule = self.get_entry(rule_id)
+        if not rule:
+            return {"ok": False, "error": "规则不存在"}
+
+        evaluated = self.evaluate_value(rule, current_value)
+        if not evaluated.get("ok"):
+            return {"ok": False, "error": evaluated.get("error", "阈值配置异常")}
+        low = evaluated["threshold_low"]
+        high = evaluated["threshold_high"]
+        breached = evaluated["breached"]
+        breach_detail = evaluated["breach_detail"]
 
         # 更新检查时间
         rule["最近检查"] = _time.strftime("%Y-%m-%d %H:%M:%S")
